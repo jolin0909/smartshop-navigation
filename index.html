@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartShop - 大潤發數位孿生導覽 Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;700&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f1f5f9; }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(30, 1fr);
+            gap: 1px;
+            background-color: #cbd5e1;
+            border: 4px solid #334155;
+            aspect-ratio: 1.2 / 1;
+        }
+        .cell { background-color: white; position: relative; }
+        .cell.wall { background-color: #94a3b8; } 
+        .cell.start { background-color: #ef4444; color: white; display: flex; align-items: center; justify-content: center; z-index: 20;}
+        .cell.end { background-color: #22c55e; color: white; display: flex; align-items: center; justify-content: center; z-index: 20;}
+        .cell.area-a { background-color: #a855f7; color: white; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; z-index: 10; }
+        .cell.item-shelf { color: #334155; font-weight: bold; font-size: 10px; }
+        
+        /* 貨架狀態 */
+        .cell.shelf-orange { background-color: #f97316 !important; color: white; }
+        .cell.shelf-red-glow { 
+            background-color: #ef4444 !important; 
+            color: white;
+            animation: redGlow 1s infinite alternate;
+        }
+        @keyframes redGlow {
+            from { box-shadow: inset 0 0 2px #ef4444; }
+            to { box-shadow: inset 0 0 12px #7f1d1d, 0 0 8px #ef4444; }
+        }
+
+        /* 步進箭頭與樣式 */
+        .path-arrow {
+            position: absolute;
+            font-size: 10px;
+            font-weight: 900;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+        .path-arrow.hidden-here { visibility: hidden; }
+        .path-arrow.past { opacity: 0.1 !important; }
+        .path-arrow.future { opacity: 1; }
+
+        /* 小人樣式 */
+        .walker {
+            color: #1d4ed8;
+            font-size: 20px;
+            z-index: 30;
+            animation: walkerBounce 0.5s infinite alternate;
+        }
+        @keyframes walkerBounce {
+            from { transform: translateY(0); }
+            to { transform: translateY(-2px); }
+        }
+    </style>
+</head>
+<body class="p-4 select-none">
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <div class="lg:col-span-1 space-y-8">
+            <div class="bg-white p-5 rounded-2xl shadow-lg border-t-4 border-red-600">
+                <div class="flex items-center mb-3">
+                    <div class="bg-red-100 p-2 rounded-lg mr-3">
+                        <i class="fas fa-map-location-dot text-red-600 text-lg"></i>
+                    </div>
+                    <h1 class="text-lg font-bold text-slate-800">大潤發智慧導航系統</h1>
+                </div>
+                
+                <div class="relative mb-4">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-search text-slate-400 text-xs"></i>
+                    </div>
+                    <input type="text" id="search-input" placeholder="搜尋商品 (如: 可、生...)" class="w-full pl-8 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 transition-all">
+                    
+                    <div id="search-suggestions" class="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto hidden z-50"></div>
+                </div>
+                
+                <p class="text-[11px] text-slate-400 mb-2 font-bold"><i class="far fa-keyboard mr-1"></i>商品選好後按下「開始導航」，【箭頭】為路線追蹤</p>
+                
+                <div id="item-list" class=" space-y-1 h-[280px] overflow-y-auto pr-1 text-base"></div>
+                
+                <button id="btn-generate" class="w-full mt-4 bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2">
+                    <span>規劃最速路線</span><i class="fas fa-route"></i>
+                </button>
+            </div>
+
+            <!-- 優惠紀錄 -->
+            <div id="promo-history-box" class="mt-2 bg-white p-4 rounded-2xl shadow-lg border-l-4 border-amber-400 hidden">
+                <div class="flex items-center mb-3">
+                    <i class="fas fa-tags text-amber-500 mr-2"></i>
+                    <h2 class="font-bold text-slate-700">已查看優惠</h2>
+                </div>
+
+                <div id="promo-history-list" class="space-y-2 max-h-[220px] overflow-y-auto">
+                </div>
+            </div>
+            <!-- 過程資訊 -->
+            <div id="stats" class="bg-white p-4 rounded-2xl shadow-lg hidden border-l-4 border-blue-500">
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <div>
+                        <p class="text-[10px] text-slate-400">剩餘距離</p>
+                        <p id="dist-val" class="text-lg font-bold text-blue-600">0</p>
+                    </div>
+                    <div>
+                        <p class="text-[10px] text-slate-400">導航階段</p>
+                        <p id="stage-val" class="text-sm font-bold text-slate-700">準備就緒</p>
+                    </div>
+                </div>
+                <div id="route-order" class="text-[11px] text-slate-500 font-mono bg-slate-50 p-2 rounded border border-slate-100"></div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-3 space-y-4">
+            
+            <div id="alert-bar" class="min-h-[50px] flex items-center justify-between bg-slate-800 text-white px-4 py-2 rounded-xl shadow-md transition-all">
+                <div id="alert-text" class="text-sm font-medium flex items-center gap-2">
+                    <i class="fas fa-info-circle text-blue-400"></i> <span>請選擇商品並點擊規劃路線。</span>
+                </div>
+                <div id="promo-trigger-zone"></div>
+            </div>
+
+            <div class="bg-white p-3 rounded-2xl shadow-lg relative">
+    <div id="map-grid" class="grid-container"></div>
+
+                <!-- 手機版前進按鈕 -->
+                <div class="mt-4 flex justify-center">
+                    <button id="btn-next-step"
+                        class="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-6 py-3 rounded-2xl shadow-lg transition-all flex items-center gap-2">
+                        <i class="fas fa-shoe-prints"></i>
+                        <span>前進一步</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="promo-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-3xl p-6 max-w-sm w-full mx-4 shadow-2xl border-t-8 border-amber-500">
+            <div class="text-center">
+                <div class="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+                    <i id="modal-icon" class="fas fa-gift"></i>
+                </div>
+                <h3 id="modal-title" class="text-lg font-bold text-slate-800 mb-2">區域限時特惠</h3>
+                <p id="modal-content" class="text-sm text-slate-600 font-medium bg-slate-50 py-3 px-4 rounded-xl border border-slate-100 mb-6"></p>
+                <button id="btn-close-modal" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl transition-all shadow-md">
+                    關閉並返回路線
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const COLS = 30;
+        const ROWS = 25;
+        const mapData = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        
+        // 主貨架資料庫
+        const items = [
+        // 生鮮食品區
+        { id: 1, name: '蔬菜', category: '生鮮食品區', x: 4, y: 7, promo: '蔬菜優惠-高麗菜-第二件五折', icon: 'fa-carrot' },
+        { id: 2, name: '水果', category: '生鮮食品區', x: 6, y: 7, promo: '水果優惠-蘋果-買一送一', icon: 'fa-apple-whole' },
+        { id: 3, name: '肉類', category: '生鮮食品區', x: 8, y: 7, promo: '肉類優惠-牛肉片-特價199元', icon: 'fa-drumstick-bite' },
+        { id: 4, name: '海鮮', category: '生鮮食品區', x: 10, y: 7, promo: '海鮮優惠-白蝦-限時八折', icon: 'fa-fish' },
+        { id: 5, name: '熟食', category: '生鮮食品區', x: 12, y: 7, promo: '熟食優惠-炸雞-第二件六折', icon: 'fa-burger', isDeli: true },
+        { id: 6, name: '烘焙', category: '生鮮食品區', x: 14, y: 7, promo: '烘焙優惠-麵包-買二送一', icon: 'fa-bread-slice' },
+
+        // 食品乾貨區
+        { id: 7, name: '餅乾', category: '食品乾貨區', x: 16, y: 7, promo: '餅乾優惠-洋芋片-第二件半價', icon: 'fa-cookie-bite' },
+        { id: 8, name: '調味', category: '食品乾貨區', x: 18, y: 7, promo: '調味優惠-醬油-特價69元', icon: 'fa-pepper-hot' },
+        { id: 9, name: '泡麵', category: '食品乾貨區', x: 20, y: 7, promo: '泡麵優惠-滿漢大餐-第二件六折', icon: 'fa-bowl-food' },
+        { id: 10, name: '罐頭', category: '食品乾貨區', x: 22, y: 7, promo: '罐頭優惠-鮪魚罐頭-買三送一', icon: 'fa-can-food' },
+        { id: 11, name: '沖泡', category: '食品乾貨區', x: 24, y: 7, promo: '沖泡優惠-奶茶-特價99元', icon: 'fa-mug-hot' },
+        { id: 12, name: '飲品', category: '食品乾貨區', x: 26, y: 7, promo: '飲品優惠-可樂-買一送一', icon: 'fa-wine-glass' },
+
+        // 冷藏冷凍區
+        { id: 13, name: '冷凍食品', category: '冷藏冷凍區', x: 6, y: 15, promo: '冷凍優惠-水餃-現折20元', icon: 'fa-snowflake' },
+        { id: 14, name: '冷藏飲品', category: '冷藏冷凍區', x: 10, y: 15, promo: '冷藏優惠-鮮奶-第二件半價', icon: 'fa-bottle-water' },
+
+        // 生活清潔區
+        { id: 15, name: '居家清潔', category: '生活清潔區', x: 14, y: 15, promo: '清潔優惠-地板清潔劑-特價129元', icon: 'fa-pump-soap' },
+        { id: 16, name: '洗衣用品', category: '生活清潔區', x: 18, y: 15, promo: '洗衣優惠-洗衣精-買大送小', icon: 'fa-shirt' },
+        { id: 17, name: '掃除用具', category: '生活清潔區', x: 22, y: 15, promo: '掃除優惠-拖把-現折50元', icon: 'fa-broom' },
+
+        // 個人護理區
+        { id: 18, name: '沐浴乳', category: '個人護理區', x: 26, y: 15, promo: '沐浴優惠-沐浴乳-第二件六折', icon: 'fa-pump-medical' },
+        { id: 19, name: '洗髮精', category: '個人護理區', x: 4, y: 20, promo: '洗髮優惠-洗髮精-買一送一', icon: 'fa-soap' },
+        { id: 20, name: '洗面乳', category: '個人護理區', x: 8, y: 20, promo: '洗面優惠-洗面乳-特價89元', icon: 'fa-face-smile' },
+        { id: 21, name: '牙膏', category: '個人護理區', x: 12, y: 20, promo: '牙膏優惠-牙膏-第二件半價', icon: 'fa-tooth' },
+        { id: 22, name: '餐具', category: '個人護理區', x: 16, y: 20, promo: '餐具優惠-筷子組-特價49元', icon: 'fa-utensils' },
+
+        // 居家百貨區
+        { id: 23, name: '寢具', category: '居家百貨區', x: 20, y: 20, promo: '寢具優惠-枕頭-限時八折', icon: 'fa-bed' },
+        { id: 24, name: '衛浴', category: '居家百貨區', x: 24, y: 20, promo: '衛浴優惠-毛巾-買二送一', icon: 'fa-bath' },
+        { id: 25, name: '文具五金', category: '居家百貨區', x: 28, y: 20, promo: '五金優惠-工具組-現折100元', icon: 'fa-screwdriver-wrench' },
+        { id: 26, name: '生活家電', category: '居家百貨區', x: 6, y: 23, promo: '家電優惠-電風扇-特價799元', icon: 'fa-fan' },
+
+        // 家電與 3C 區
+        { id: 27, name: '3C 電子配件', category: '家電與 3C 區', x: 12, y: 23, promo: '3C優惠-充電線-買二送一', icon: 'fa-headphones' },
+        { id: 28, name: '休閒服飾', category: '家電與 3C 區', x: 18, y: 23, promo: '服飾優惠-T恤-第二件五折', icon: 'fa-shirt' },
+
+        // 服飾與鞋包區
+        { id: 29, name: '貼身衣物', category: '服飾與鞋包區', x: 22, y: 23, promo: '內衣優惠-買三送一', icon: 'fa-socks' },
+        { id: 30, name: '衣服配件', category: '服飾與鞋包區', x: 26, y: 23, promo: '配件優惠-帽子-特價199元', icon: 'fa-hat-cowboy' },
+        { id: 31, name: '鞋包', category: '服飾與鞋包區', x: 28, y: 23, promo: '鞋包優惠-背包-限時七折', icon: 'fa-shoe-prints' }
+    ];
+
+        // 精細化搜尋聯想細項資料庫：讓同字頭的商品可以精準導向不同的貨架區域！
+        const searchKeywordsPool = [
+    // 飲品區
+        { display: '可樂', targetId: 12 },
+        { display: '雪碧', targetId: 12 },
+        { display: '汽水', targetId: 12 },
+        { display: '茶飲', targetId: 12 },
+        { display: '果汁', targetId: 12 },
+
+        // 冷藏飲品區
+        { display: '乳酸飲', targetId: 14 },
+        { display: '牛奶', targetId: 14 },
+        { display: '豆漿', targetId: 14 },
+        { display: '優酪乳', targetId: 14 },
+        { display: '鮮奶', targetId: 14 },
+
+        // 沖泡區
+        { display: '可可粉', targetId: 11 },
+        { display: '奶茶粉', targetId: 11 },
+        { display: '咖啡粉', targetId: 11 },
+        { display: '麥片', targetId: 11 },
+
+        // 餅乾區
+        { display: '糖果', targetId: 7 },
+        { display: '餅乾', targetId: 7 },
+        { display: '洋芋片', targetId: 7 },
+        { display: '巧克力', targetId: 7 },
+
+        // 泡麵區
+        { display: '泡麵', targetId: 9 },
+        { display: '杯麵', targetId: 9 },
+        { display: '乾拌麵', targetId: 9 },
+
+        // 冷凍食品區
+        { display: '冷凍食品', targetId: 13 },
+        { display: '冷凍水餃', targetId: 13 },
+        { display: '冷凍披薩', targetId: 13 },
+        { display: '冷凍義大利麵', targetId: 13 },
+        { display: '冷凍薯條', targetId: 13 },
+
+        // 熟食區
+        { display: '熟食', targetId: 5 },
+        { display: '熟水餃', targetId: 5 },
+        { display: '烤雞', targetId: 5 },
+        { display: '炸雞', targetId: 5 },
+        { display: '便當', targetId: 5 },
+
+        // 肉類區
+        { display: '生鮮肉品', targetId: 3 },
+        { display: '生鮮豬肉', targetId: 3 },
+        { display: '牛肉', targetId: 3 },
+        { display: '雞肉', targetId: 3 },
+
+        // 蔬菜區
+        { display: '生鮮蔬菜', targetId: 1 },
+        { display: '高麗菜', targetId: 1 },
+        { display: '青江菜', targetId: 1 },
+
+        // 水果區
+        { display: '生鮮水果', targetId: 2 },
+        { display: '生鮮香蕉', targetId: 2 },
+        { display: '蘋果', targetId: 2 },
+        { display: '葡萄', targetId: 2 },
+
+        // 海鮮區
+        { display: '海鮮', targetId: 4 },
+        { display: '魚肉', targetId: 4 },
+        { display: '白蝦', targetId: 4 },
+
+        // 烘焙區
+        { display: '麵包', targetId: 6 },
+        { display: '蛋糕', targetId: 6 },
+        { display: '吐司', targetId: 6 },
+
+        // 居家清潔區
+        { display: '清潔劑', targetId: 15 },
+        { display: '漂白水', targetId: 15 },
+        { display: '地板清潔', targetId: 15 },
+
+        // 洗衣用品區
+        { display: '洗衣精', targetId: 16 },
+        { display: '洗衣粉', targetId: 16 },
+        { display: '柔軟精', targetId: 16 },
+
+        // 掃除用具區
+        { display: '拖把', targetId: 17 },
+        { display: '掃把', targetId: 17 },
+        { display: '垃圾袋', targetId: 17 },
+
+        // 沐浴乳區
+        { display: '沐浴乳', targetId: 18 },
+
+        // 洗髮精區
+        { display: '洗髮精', targetId: 19 },
+
+        // 洗面乳區
+        { display: '洗面乳', targetId: 20 },
+
+        // 牙膏區
+        { display: '牙膏', targetId: 21 },
+        { display: '牙刷', targetId: 21 },
+
+        // 餐具區
+        { display: '餐具', targetId: 22 },
+        { display: '筷子', targetId: 22 },
+        { display: '湯匙', targetId: 22 },
+
+        // 寢具區
+        { display: '毛巾', targetId: 23 },
+        { display: '毛毯', targetId: 23 },
+        { display: '寢具', targetId: 23 },
+        { display: '枕頭', targetId: 23 },
+
+        // 衛浴區
+        { display: '衛生紙', targetId: 24 },
+        { display: '衛生棉', targetId: 24 },
+        { display: '紙巾', targetId: 24 },
+
+        // 文具五金區
+        { display: '文具', targetId: 25 },
+        { display: '工具', targetId: 25 },
+        { display: '螺絲起子', targetId: 25 },
+
+        // 生活家電區
+        { display: '電風扇', targetId: 26 },
+        { display: '吹風機', targetId: 26 },
+
+        // 3C 電子配件區
+        { display: '充電線', targetId: 27 },
+        { display: '耳機', targetId: 27 },
+        { display: '滑鼠', targetId: 27 },
+
+        // 休閒服飾區
+        { display: '衣服', targetId: 28 },
+        { display: 'T恤', targetId: 28 },
+
+        // 貼身衣物區
+        { display: '內衣', targetId: 29 },
+        { display: '襪子', targetId: 29 },
+
+        // 衣服配件區
+        { display: '帽子', targetId: 30 },
+        { display: '皮帶', targetId: 30 },
+
+        // 鞋包區
+        { display: '鞋子', targetId: 31 },
+        { display: '背包', targetId: 31 }
+    ];
+
+        const startPos = { x: 8, y: 10 };  
+        const endPos = { x: 4, y: 22 };    
+        const areaAPos = { x: 8, y: 1 };   
+
+        let selectedIds = new Set();
+        let globalNavigationPath = []; 
+        let currentWalkerIndex = 0;  
+        // 優惠紀錄
+        let promoHistory = []; 
+        const segmentColors = ['#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b'];
+
+        function initMap() {
+            const gridEl = document.getElementById('map-grid');
+            gridEl.innerHTML = '';
+            
+            // 鋪設灰色實體長條貨架
+            for(let x=4; x<28; x+=4) {
+                for(let y=2; y<10; y++) mapData[y][x] = 1;
+            }
+            for(let x=10; x<25; x+=4) {
+                for(let y=12; y<20; y++) mapData[y][x] = 1;
+            }
+            for(let x=18; x<28; x++) mapData[11][x] = 1;
+
+            // 確保商品格在貨架中被標記
+            items.forEach(i => { mapData[i.y][i.x] = 1; });
+
+            // 渲染全地圖
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell flex items-center justify-center';
+                    cell.id = `cell-${x}-${y}`;
+                    
+                    if (x === areaAPos.x && y === areaAPos.y) {
+                        cell.classList.add('area-a');
+                        cell.innerText = 'A區';
+                        cell.title = '估價區';
+                    } else if (x === startPos.x && y === startPos.y) {
+                        cell.classList.add('start');
+                        cell.innerHTML = '<i class="fas fa-door-open text-[10px]"></i>';
+                    } else if (x === endPos.x && y === endPos.y) {
+                        cell.classList.add('end');
+                        cell.innerHTML = '<i class="fas fa-cash-register text-[10px]"></i>';
+                    } else if (mapData[y][x] === 1) {
+                        cell.classList.add('wall', 'item-shelf');
+                        const matchedItem = items.find(i => i.x === x && i.y === y);
+                        if(matchedItem) {
+                            cell.innerHTML = `<span>${matchedItem.id}</span>`;
+                            cell.title = matchedItem.name;
+                        }
+                    }
+                    gridEl.appendChild(cell);
+                }
+            }
+            renderCheckList();
+            setupSearchEngine();
+        }
+
+        function renderCheckList() {
+            const listEl = document.getElementById('item-list');
+            listEl.innerHTML = '';
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.id = `list-item-${item.id}`;
+                div.className = "flex items-center p-2 bg-slate-50 hover:bg-white rounded-lg cursor-pointer transition-all border border-slate-100 group";
+                div.innerHTML = `
+                    <div class="w-4 h-4 border-2 border-slate-300 rounded mr-2 flex items-center justify-center checkbox-ui transition-all">
+                        <i class="fas fa-check text-white text-[8px] hidden"></i>
+                    </div>
+                    <span class="font-bold text-slate-400 mr-1 w-4">${item.id}</span>
+                    <span class="text-slate-700 font-medium">${item.name}</span>
+                `;
+                div.onclick = () => toggleItemSelection(item.id);
+                listEl.appendChild(div);
+            });
+        }
+
+        function toggleItemSelection(id) {
+            const item = items.find(i => i.id === id);
+            if(!item) return;
+            const listEl = document.getElementById(`list-item-${id}`);
+            const checkbox = listEl.querySelector('.checkbox-ui');
+            const checkIcon = checkbox.querySelector('i');
+            const shelfCell = document.getElementById(`cell-${item.x}-${item.y}`);
+
+            if (selectedIds.has(id)) {
+                selectedIds.delete(id);
+                checkbox.classList.remove('bg-orange-500', 'border-orange-500');
+                checkIcon.classList.add('hidden');
+                shelfCell.classList.remove('shelf-orange', 'shelf-red-glow');
+            } else {
+                selectedIds.add(id);
+                checkbox.classList.add('bg-orange-500', 'border-orange-500');
+                checkIcon.classList.remove('hidden');
+                shelfCell.classList.add('shelf-orange');
+            }
+            resetNavigationState();
+        }
+
+        // 優化後的搜尋與聯想列表功能：支援同字開頭跳轉至不同貨架區
+        function setupSearchEngine() {
+            const input = document.getElementById('search-input');
+            const sugBox = document.getElementById('search-suggestions');
+
+            input.oninput = () => {
+                const val = input.value.trim().toLowerCase();
+                sugBox.innerHTML = '';
+                if (!val) { sugBox.classList.add('hidden'); return; }
+
+                // 搜尋細項資料庫中所有開頭或包含該關鍵字的項目
+                const matches = searchKeywordsPool.filter(k => k.display.toLowerCase().includes(val));
+
+                if (matches.length === 0) {
+                    sugBox.innerHTML = `<div class="p-3 text-xs text-slate-400 italic">查無對應商品</div>`;
+                } else {
+                    matches.forEach(match => {
+                        const targetArea = items.find(i => i.id === match.targetId);
+                        const row = document.createElement('div');
+                        row.className = "p-2.5 text-xs hover:bg-slate-50 cursor-pointer font-medium text-slate-700 border-b border-slate-50 flex justify-between items-center";
+                        row.innerHTML = `
+                            <span>${match.display}</span>
+                            <span class="bg-slate-100 text-[9px] px-1.5 py-0.5 rounded text-slate-500">導向: ${targetArea.name}</span>
+                        `;
+                        row.onclick = () => {
+                            if (!selectedIds.has(match.targetId)) {
+                                toggleItemSelection(match.targetId);
+                            }
+                            input.value = '';
+                            sugBox.classList.add('hidden');
+                        };
+                        sugBox.appendChild(row);
+                    });
+                }
+                sugBox.classList.remove('hidden');
+            };
+
+            document.addEventListener('click', (e) => {
+                if (e.target !== input) sugBox.classList.add('hidden');
+            });
+        }
+
+        function aStarSearch(start, end) {
+            const openSet = [start];
+            const cameFrom = {};
+            const gScore = {}, fScore = {};
+            const key = (p) => `${p.x},${p.y}`;
+            
+            gScore[key(start)] = 0;
+            fScore[key(start)] = Math.abs(start.x - end.x) + Math.abs(start.y - end.y);
+
+            while (openSet.length > 0) {
+                let current = openSet.reduce((a, b) => fScore[key(a)] < fScore[key(b)] ? a : b);
+                if (current.x === end.x && current.y === end.y) {
+                    const path = [];
+                    while (key(current) in cameFrom) {
+                        path.push(current);
+                        current = cameFrom[key(current)];
+                    }
+                    return path.reverse();
+                }
+                openSet.splice(openSet.indexOf(current), 1);
+                
+                const neighbors = [
+                    {x: current.x+1, y: current.y}, {x: current.x-1, y: current.y},
+                    {x: current.x, y: current.y+1}, {x: current.x, y: current.y-1}
+                ].filter(n => n.x >= 0 && n.x < COLS && n.y >= 0 && n.y < ROWS && mapData[n.y][n.x] === 0);
+
+                for (let n of neighbors) {
+                    let tg = gScore[key(current)] + 1;
+                    if (tg < (gScore[key(n)] ?? Infinity)) {
+                        cameFrom[key(n)] = current;
+                        gScore[key(n)] = tg;
+                        fScore[key(n)] = tg + Math.abs(n.x - end.x) + Math.abs(n.y - end.y);
+                        if (!openSet.find(o => o.x === n.x && o.y === n.y)) openSet.push(n);
+                    }
+                }
+            }
+            return [];
+        }
+
+        function getPermutations(array) {
+            if (array.length <= 1) return [array];
+            let perms = [];
+            for (let i = 0; i < array.length; i++) {
+                let rest = getPermutations(array.slice(0, i).concat(array.slice(i + 1)));
+                for (let r of rest) perms.push([array[i], ...r]);
+            }
+            return perms;
+        }
+
+        function resetNavigationState() {
+            globalNavigationPath = [];
+            currentWalkerIndex = 0;
+
+            promoHistory = [];
+            renderPromoHistory();
+            
+            document.querySelectorAll('.path-arrow').forEach(a => a.remove());
+            const walker = document.getElementById('user-walker');
+            if(walker) walker.remove();
+            document.getElementById('stats').classList.add('hidden');
+            document.getElementById('alert-bar').className = "min-h-[50px] flex items-center justify-between bg-slate-800 text-white px-4 py-2 rounded-xl shadow-md";
+            document.getElementById('alert-text').innerHTML = `<i class="fas fa-info-circle text-blue-400"></i> <span>請選擇商品並點擊規劃路線。</span>`;
+            document.getElementById('promo-trigger-zone').innerHTML = '';
+            items.forEach(i => {
+                const cell = document.getElementById(`cell-${i.x}-${i.y}`);
+                if (cell) {
+                    cell.classList.remove('shelf-red-glow');
+                    if(selectedIds.has(i.id)) cell.classList.add('shelf-orange');
+                }
+            });
+        }
+
+        document.getElementById('btn-generate').onclick = () => {
+            resetNavigationState();
+            if (selectedIds.size === 0) return;
+
+            const pool = Array.from(selectedIds).map(id => items.find(i => i.id === id));
+            const perms = getPermutations(pool);
+            
+            let bestFullPathData = null;
+            let minTotalDist = Infinity;
+            let bestSegmentMeta = [];
+
+            perms.forEach(order => {
+                let currentPos = startPos;
+                let accumulatedPath = [];
+                let totalDist = 0;
+                let segments = [];
+
+                order.forEach((targetShelf) => {
+                    const neighbors = [
+                        {x: targetShelf.x+1, y: targetShelf.y}, {x: targetShelf.x-1, y: targetShelf.y},
+                        {x: targetShelf.x, y: targetShelf.y+1}, {x: targetShelf.x, y: targetShelf.y-1}
+                    ].filter(n => n.x >= 0 && n.x < COLS && n.y >= 0 && n.y < ROWS && mapData[n.y][n.x] === 0);
+
+                    let bestCheckPoint = neighbors[0];
+                    let shortestSub = Infinity;
+                    neighbors.forEach(nb => {
+                        const d = Math.abs(currentPos.x - nb.x) + Math.abs(currentPos.y - nb.y);
+                        if(d < shortestSub) { shortestSub = d; bestCheckPoint = nb; }
+                    });
+
+                    const subPath = aStarSearch(currentPos, bestCheckPoint);
+                    segments.push({ data: subPath, item: targetShelf });
+                    accumulatedPath = accumulatedPath.concat(subPath);
+                    totalDist += subPath.length;
+                    currentPos = bestCheckPoint;
+                });
+
+                const finalSub = aStarSearch(currentPos, endPos);
+                segments.push({ data: finalSub, item: { id: '結帳', name: '收銀台' } });
+                accumulatedPath = accumulatedPath.concat(finalSub);
+                totalDist += finalSub.length;
+
+                if (totalDist < minTotalDist) {
+                    minTotalDist = totalDist;
+                    bestFullPathData = accumulatedPath;
+                    bestSegmentMeta = segments;
+                }
+            });
+
+            bestSegmentMeta.forEach((seg, sIdx) => {
+                const color = segmentColors[sIdx % segmentColors.length];
+                seg.data.forEach((coord) => {
+                    globalNavigationPath.push({
+                        x: coord.x,
+                        y: coord.y,
+                        color: color,
+                        targetItem: seg.item,
+                        isLastSeg: sIdx === bestSegmentMeta.length - 1
+                    });
+                });
+            });
+
+            for(let i = 0; i < globalNavigationPath.length - 1; i++) {
+                const cur = globalNavigationPath[i];
+                const next = globalNavigationPath[i+1];
+                const cell = document.getElementById(`cell-${cur.x}-${cur.y}`);
+                
+                if (cell && !cell.classList.contains('start') && !cell.classList.contains('end')) {
+                    let arrowIcon = 'fa-arrow-right';
+                    if (next.x > cur.x) arrowIcon = 'fa-arrow-right';
+                    else if (next.x < cur.x) arrowIcon = 'fa-arrow-left';
+                    else if (next.y > cur.y) arrowIcon = 'fa-arrow-down';
+                    else if (next.y < cur.y) arrowIcon = 'fa-arrow-up';
+
+                    const arrowEl = document.createElement('div');
+                    arrowEl.className = `path-arrow future`;
+                    arrowEl.id = `arrow-${i}`;
+                    arrowEl.style.color = cur.color;
+                    arrowEl.innerHTML = `<i class="fas ${arrowIcon}"></i>`;
+                    cell.appendChild(arrowEl);
+                }
+            }
+
+            const firstCell = document.getElementById(`cell-${startPos.x}-${startPos.y}`);
+            const walkerEl = document.createElement('div');
+            walkerEl.id = 'user-walker';
+            walkerEl.className = 'walker flex items-center justify-center w-full h-full';
+            walkerEl.innerHTML = '<i class="fas fa-walking"></i>';
+            firstCell.appendChild(walkerEl);
+
+            document.getElementById('stats').classList.remove('hidden');
+            document.getElementById('dist-val').innerText = globalNavigationPath.length;
+            document.getElementById('stage-val').innerText = "前往: " + bestSegmentMeta[0].item.name;
+            document.getElementById('route-order').innerText = "導航序: 入口 → " + bestSegmentMeta.map(s => s.item.id).join(" → ");
+            
+            updateSimulationUX();
+        };
+
+        // 小人前進一步（手機與空白鍵共用）
+function moveWalkerOneStep() {
+
+    if (globalNavigationPath.length === 0 || currentWalkerIndex >= globalNavigationPath.length) return;
+
+    const curArrow = document.getElementById(`arrow-${currentWalkerIndex}`);
+
+    if(curArrow) {
+        curArrow.classList.remove('hidden-here', 'future');
+        curArrow.classList.add('past');
+    }
+
+    currentWalkerIndex++;
+
+    const nextCoord =
+        currentWalkerIndex < globalNavigationPath.length
+        ? globalNavigationPath[currentWalkerIndex]
+        : endPos;
+
+    const nextCell = document.getElementById(`cell-${nextCoord.x}-${nextCoord.y}`);
+
+    const walkerEl = document.getElementById('user-walker');
+
+    if (walkerEl && nextCell) {
+        nextCell.appendChild(walkerEl);
+    }
+
+    const nextArrow = document.getElementById(`arrow-${currentWalkerIndex}`);
+
+    if(nextArrow) {
+        nextArrow.classList.add('hidden-here');
+    }
+
+    document.getElementById('dist-val').innerText =
+        Math.max(0, globalNavigationPath.length - currentWalkerIndex);
+
+    updateSimulationUX();
+}
+
+
+        window.onkeydown = (e) => {
+    if (e.code === 'Space' || e.keyCode === 32) {
+        e.preventDefault();
+        moveWalkerOneStep();
+    }
+};
+
+        function updateSimulationUX() {
+            if(globalNavigationPath.length === 0) return;
+            
+            const curStep = currentWalkerIndex < globalNavigationPath.length ? globalNavigationPath[currentWalkerIndex] : null;
+            if(!curStep) {
+                document.getElementById('stage-val').innerText = "完成購物";
+                document.getElementById('alert-text').innerHTML = `<i class="fas fa-check-double text-green-400"></i> <span>已順利抵達收銀台，購物導航結束。</span>`;
+                document.getElementById('promo-trigger-zone').innerHTML = '';
+                return;
+            }
+
+            document.getElementById('stage-val').innerText = curStep.isLastSeg ? "前往結帳" : `前往: ${curStep.targetItem.name}`;
+            
+            let walkerX = currentWalkerIndex < globalNavigationPath.length ? globalNavigationPath[currentWalkerIndex].x : endPos.x;
+            let walkerY = currentWalkerIndex < globalNavigationPath.length ? globalNavigationPath[currentWalkerIndex].y : endPos.y;
+
+            items.forEach(item => {
+                if (selectedIds.has(item.id)) {
+                    const isAdjacent = (Math.abs(walkerX - item.x) + Math.abs(walkerY - item.y)) === 1;
+                    const shelfCell = document.getElementById(`cell-${item.x}-${item.y}`);
+                    
+                    if (isAdjacent) {
+                        shelfCell.classList.remove('shelf-orange');
+                        shelfCell.classList.add('shelf-red-glow');
+                        triggerContextAlert(item);
+                    }
+                }
+            });
+        }
+
+        
+        function addPromoHistory(item) {
+
+            // 避免重複加入同一優惠
+            promoHistory = promoHistory.filter(p => p.name !== item.name);
+
+            // 最新優惠插入最前面
+            promoHistory.unshift({
+                name: item.name,
+                promo: item.promo,
+                icon: item.icon
+            });
+
+            renderPromoHistory();
+        }
+
+        function renderPromoHistory() {
+
+            const box = document.getElementById('promo-history-box');
+            const list = document.getElementById('promo-history-list');
+
+            list.innerHTML = '';
+
+            if (promoHistory.length === 0) {
+                box.classList.add('hidden');
+                return;
+            }
+
+            box.classList.remove('hidden');
+
+            promoHistory.forEach((promo, index) => {
+
+                const row = document.createElement('div');
+
+                row.className =
+                    "bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-start gap-3";
+
+                row.innerHTML = `
+                    <div class="w-8 h-8 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                        <i class="fas ${promo.icon}"></i>
+                    </div>
+
+                    <div class="flex-1">
+                        <div class="text-[10px] text-slate-400 font-bold mb-1">
+                            優惠 ${index + 1}
+                        </div>
+
+                        <div class="text-sm font-bold text-slate-700">
+                            ${promo.name}
+                        </div>
+
+                        <div class="text-xs text-slate-500 mt-1">
+                            ${promo.promo}
+                        </div>
+                    </div>
+                `;
+
+                list.appendChild(row);
+            });
+        }
+        function triggerContextAlert(item) {
+            addPromoHistory(item);
+            const alertTextContainer = document.getElementById('alert-text');
+
+            const promoZone = document.getElementById('promo-trigger-zone');
+
+            if (item.isDeli) {
+                document.getElementById('alert-bar').className = "min-h-[50px] flex items-center justify-between bg-amber-500 text-slate-900 px-4 py-2 rounded-xl shadow-md border-l-8 border-red-600 font-bold";
+                alertTextContainer.innerHTML = `<i class="fas fa-triangle-exclamation text-red-700 text-lg"></i> <span>請記得貼價錢！估價位置 - A區 (地圖最上方)</span>`;
+            } else {
+                document.getElementById('alert-bar').className = "min-h-[50px] flex items-center justify-between bg-slate-800 text-white px-4 py-2 rounded-xl shadow-md border-l-4 border-red-500";
+                alertTextContainer.innerHTML = `<i class="fas fa-location-dot text-red-400"></i> <span>您已抵達【${item.name}】貨架旁。</span>`;
+            }
+
+            promoZone.innerHTML = `
+                <button onclick="openPromoModal('${item.icon}', '${item.name}', '${item.promo}')" class="bg-amber-400 hover:bg-amber-500 text-slate-900 px-3 py-1.5 rounded-lg text-xs font-bold shadow-md flex items-center gap-1.5 active:scale-95 transition-all">
+                    <i class="fas ${item.icon}"></i> <span>看此區優惠</span>
+                </button>
+            `;
+        }
+
+        function openPromoModal(icon, title, content) {
+            document.getElementById('modal-icon').className = `fas ${icon}`;
+            document.getElementById('modal-title').innerText = `${title} 現場即時促銷`;
+            document.getElementById('modal-content').innerText = content;
+            document.getElementById('promo-modal').classList.remove('hidden');
+        }
+
+                // 手機版按鈕控制前進
+        document.getElementById('btn-next-step').onclick = () => {
+            moveWalkerOneStep();
+        };
+        
+        document.getElementById('btn-close-modal').onclick = () => {
+            document.getElementById('promo-modal').classList.add('hidden');
+        };
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
